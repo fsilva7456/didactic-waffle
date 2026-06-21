@@ -13,6 +13,9 @@ venv/
 # `make fixtures` / conftest, so they are generated, not committed.
 /data/
 
+# Claude Code local state / agent worktrees
+.claude/
+
 # OS / editor
 .DS_Store
 .idea/
