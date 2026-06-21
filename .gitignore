@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local data cache & built DB (do NOT commit your private Strava data).
+# Fixtures are deterministic (seeded) and regenerated on demand via
+# `make fixtures` / conftest, so they are generated, not committed.
+/data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,91 @@
+# =============================================================================
+# Strava Dashboard — Analysis Requirements
+# -----------------------------------------------------------------------------
+# This file captures YOUR analysis preferences. Edit it freely; no code changes
+# are needed. The pipeline (transform + marts) reads these values at build time
+# and the dashboard reads them at render time.
+# =============================================================================
+
+# Sync window: how far back to harvest activities.
+sync:
+  # ISO dates (inclusive). `start` defaults to ~3 years before today if null.
+  start: null
+  end: null
+  years_back: 3
+
+# Units. measurement_preference comes from your Strava profile ("Metric").
+units:
+  distance: km          # km | mi
+  pace_for: run         # which sport pace bins below describe by default
+
+# How sports are grouped/treated. `pace_metric` decides how "pace" is derived:
+#   run/walk/hike  -> min per km  (from speed)
+#   swim           -> min per 100m
+#   ride/virtual   -> speed (km/h) [pace bins ignored; uses speed_bins]
+sports:
+  primary: Run
+  include_all: true     # pull every sport type (per user: "all activity types")
+  pace_based: [Run, TrailRun, Walk, Hike]
+  swim_based: [Swim]
+  speed_based: [Ride, VirtualRide, MountainBikeRide, GravelRide]
+
+# Run pace buckets (min/km). Used for pace-distribution & pace-range analysis.
+# Edit boundaries to taste; "label" is what shows on charts.
+pace_bins_run:
+  unit: min_per_km
+  edges: [3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0]
+  # Anything faster than first edge => "sub 3:30"; slower than last => "8:00+".
+
+# Swim pace buckets (min/100m).
+pace_bins_swim:
+  unit: min_per_100m
+  edges: [1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0]
+
+# Ride speed buckets (km/h).
+speed_bins_ride:
+  unit: km_per_h
+  edges: [15, 20, 25, 28, 31, 34, 37, 40]
+
+# Race detection. Activities matching are flagged is_race=true and grouped into
+# race "events" (a triathlon's swim/bike/run on one day = one event).
+races:
+  # Name regex (case-insensitive) used to auto-detect races.
+  name_patterns:
+    - "ironman"
+    - "70\\.3"
+    - "triathlon"
+    - "\\bmarathon\\b"
+    - "half[ -]?marathon"
+    - "\\b10k\\b"
+    - "\\b5k\\b"
+    - "race"
+    - "t100"
+  # Also treat Strava workout_type==1 (run race) / ==11 (ride race) as races.
+  use_workout_type: true
+  # Group activities within this many hours on the same day into one event.
+  event_group_hours: 12
+  # Manual overrides: force/deny specific activity ids.
+  force_race_ids: []
+  exclude_ids: []
+  # Manual race events you want pinned (optional). date = YYYY-MM-DD.
+  pinned_events: []
+    # - { date: "2025-05-25", name: "Ironman 70.3 Victoria", priority: A }
+
+# Race buildup windows: how many weeks before a race to analyze as the "block".
+buildup:
+  weeks_before: 16
+  taper_weeks: 2
+  # Long-run definition for buildup progression (km).
+  long_run_min_km: 16
+
+# Trend comparison periods for "how has my pace distribution changed over time".
+trends:
+  period: quarter       # week | month | quarter | year
+  rolling_weeks: 6      # rolling window for volume & pace-range bands
+
+# Training load model (CTL/ATL/TSB) time constants in days.
+training_load:
+  ctl_days: 42
+  atl_days: 7
+  # Source for daily load: "relative_effort" (Strava) or "hrtss".
+  load_source: relative_effort
