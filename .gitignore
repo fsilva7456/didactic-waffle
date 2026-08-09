@@ -1,0 +1,6 @@
+# Pipeline run state: logs, completion reports, rendered prompts, review
+# sandboxes. Regenerated every run.
+.pipeline/
+
+# Local configuration overrides (test commands, paths, concurrency).
+pipeline.config.local.sh
