@@ -39,8 +39,12 @@ cp "$ARCH" "$SANDBOX/ARCHITECTURE.md"
 if (( INCLUDE_PRD )); then
   # The reviewer needs the requirements to judge fit — without them it can only
   # review the design against itself.
-  [[ -z "$PRD" && -d "$PIPELINE_DOCS_DIR/prd" ]] && \
-    PRD=$(find "$PIPELINE_DOCS_DIR/prd" -name '*.md' -print -quit 2>/dev/null || true)
+  # Glob rather than `find -quit`, which BSD find has not always supported.
+  if [[ -z "$PRD" && -d "$PIPELINE_DOCS_DIR/prd" ]]; then
+    for _candidate in "$PIPELINE_DOCS_DIR"/prd/*.md; do
+      [[ -f "$_candidate" ]] && { PRD="$_candidate"; break; }
+    done
+  fi
   [[ -n "$PRD" && -f "$PRD" ]] && cp "$PRD" "$SANDBOX/PRD.md"
 fi
 

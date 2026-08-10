@@ -56,14 +56,31 @@ _herdr_send() {
 # herdr reports idle | working | blocked | done | unknown. `done` means the
 # agent process exited; `idle` means it is alive and waiting for input. Both
 # mean "no longer working", which is all the swarm cares about.
+#
+# herdr prints JSON by default and its envelope is not contractually fixed, so
+# rather than hard-coding a path we search the document for the first object
+# carrying a status, then fall back to scraping plain text. This survives both
+# an envelope change and a build that prints a table.
 _herdr_status() {
   local name="$1" out
-  out=$("$HERDR_BIN" agent list --json 2>/dev/null) || { echo unknown; return; }
-  jq -r --arg n "$name" '
-    (if type=="array" then . else (.result.agents // .agents // .data // []) end)
-    | map(select((.name // .id // "") == $n))
-    | if length == 0 then "missing" else (.[0].status // .[0].state // "unknown") end
-  ' <<<"$out" 2>/dev/null || echo unknown
+  out=$("$HERDR_BIN" agent get "$name" 2>/dev/null) || out=""
+  [[ -n "$out" ]] || out=$("$HERDR_BIN" agent list 2>/dev/null) || { echo unknown; return 0; }
+
+  local st
+  st=$(jq -r --arg n "$name" '
+        [ .. | objects
+          | select((.name? // .id? // .label? // "") == $n or (has("status") or has("state")))
+          | (.status? // .state?) ]
+        | map(select(. != null)) | .[0] // empty
+      ' <<<"$out" 2>/dev/null) || st=""
+
+  if [[ -z "$st" ]]; then
+    # Not JSON, or nothing recognisable in it: find the agent's line and pick
+    # out whichever status word appears on it.
+    st=$(grep -F "$name" <<<"$out" 2>/dev/null \
+         | grep -oE 'idle|working|blocked|done|unknown' | head -1) || st=""
+  fi
+  printf '%s\n' "${st:-unknown}"
 }
 
 _herdr_read() {
@@ -71,9 +88,20 @@ _herdr_read() {
   "$HERDR_BIN" agent read "$name" --source recent --lines "$lines" 2>/dev/null || true
 }
 
+# herdr has no `agent stop`. Agents are panes, so terminating one means
+# resolving it to its pane and closing that. Without this a five-agent run
+# leaves five dead panes behind every cycle.
 _herdr_stop() {
-  local name="$1"
-  "$HERDR_BIN" agent stop "$name" >/dev/null 2>&1 || true
+  local name="$1" pane
+  pane=$("$HERDR_BIN" agent get "$name" 2>/dev/null \
+         | jq -r 'first(.. | objects | (.pane_id? // .paneId? // empty)) // empty' 2>/dev/null) || pane=""
+  if [[ -n "$pane" ]]; then
+    "$HERDR_BIN" pane close "$pane" >/dev/null 2>&1 || \
+      log_debug "could not close pane $pane for $name"
+  else
+    log_debug "no pane id for agent $name; leaving its pane open"
+  fi
+  return 0
 }
 
 # --- headless --------------------------------------------------------------
@@ -88,9 +116,15 @@ _headless_spawn() {
   cp "$prompt_file" "$PIPELINE_STATE_ABS/locks/$name.prompt" 2>/dev/null || true
   # shellcheck disable=SC2206
   local -a args=(${PIPELINE_AGENT_ARGS})
+
+  # Read the prompt here, in the foreground. Expansions inside an
+  # asynchronous command are performed by the forked child, so a
+  # `$(cat "$prompt_file")` down there races the caller deleting its temp
+  # file — and the agent silently starts with an empty prompt when it loses.
+  local prompt_text; prompt_text=$(cat "$prompt_file")
   (
     cd "$cwd" || exit 1
-    nohup "$PIPELINE_AGENT_CMD" "${args[@]}" -p "$(cat "$prompt_file")" \
+    nohup "$PIPELINE_AGENT_CMD" "${args[@]}" -p "$prompt_text" \
       >"$log" 2>&1 &
     echo $! >"$pid_file"
   )

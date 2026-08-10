@@ -41,11 +41,14 @@ holding only the PRD and the design document — no codebase, no git history,
 none of the reasoning that produced the design. A reviewer that watched a
 design evolve will accept reasoning it should be attacking.
 
+**Setting this up on a Mac?** Start with [`docs/HANDOVER.md`](docs/HANDOVER.md)
+— macOS ships bash 3.2, which cannot run this.
+
 ## Requirements
 
 | | |
 | --- | --- |
-| bash 4+, git, jq, flock, timeout | worktrees, JSON, locking |
+| bash 4+ (`brew install bash`), git, jq | worktrees, JSON |
 | [`bd`](https://github.com/steveyegge/beads) | the bead graph |
 | [`herdr`](https://herdr.dev) | agent panes (optional — see backends) |
 | `claude` | the agents themselves |

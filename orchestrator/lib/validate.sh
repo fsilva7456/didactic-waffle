@@ -18,7 +18,7 @@ _run_gate() {
   [[ -n "$cmd" ]] || return 0
   path=$(wt_path "$bead")
   log_info "$bead: gate '$label' -> $cmd"
-  out=$(cd "$path" && timeout 900 bash -lc "$cmd" 2>&1) || rc=$?
+  out=$(cd "$path" && run_with_timeout "${PIPELINE_GATE_TIMEOUT:-900}" bash -lc "$cmd" 2>&1) || rc=$?
   if (( rc != 0 )); then
     _fail "$label failed (exit $rc):
 \`\`\`

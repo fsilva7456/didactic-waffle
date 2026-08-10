@@ -9,16 +9,28 @@ source "$PIPELINE_LIB_DIR/beads.sh"
 source "$PIPELINE_LIB_DIR/agents.sh"
 
 ok=0; warn=0; bad=0
+IS_MAC=""; [[ "$(uname -s)" == "Darwin" ]] && IS_MAC=1
 pass() { printf '  \033[32m✓\033[0m %s\n' "$1"; ok=$((ok+1)); }
 soft() { printf '  \033[33m!\033[0m %s\n' "$1"; warn=$((warn+1)); }
 hard() { printf '  \033[31m✗\033[0m %s\n' "$1"; bad=$((bad+1)); }
 
 echo "== host =="
-for c in git jq flock timeout; do
-  command -v "$c" >/dev/null && pass "$c" || hard "$c not found"
+printf '  · %s, bash %s\n' "$(uname -s)" "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"
+if (( BASH_VERSINFO[0] >= 4 )); then
+  pass "bash 4+"
+else
+  hard "bash 4+ required — macOS ships 3.2; \`brew install bash\`"
+fi
+for c in git jq; do
+  command -v "$c" >/dev/null && pass "$c" \
+    || hard "$c not found${IS_MAC:+ — brew install $c}"
 done
-printf '  · bash %s\n' "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"
-(( BASH_VERSINFO[0] >= 4 )) || hard "bash 4+ required (associative arrays)"
+# Locking is mkdir-based, so flock is deliberately not required.
+if [[ -n "$PIPELINE_TIMEOUT_BIN" ]]; then
+  pass "timeout: $PIPELINE_TIMEOUT_BIN"
+else
+  soft "no timeout/gtimeout — using the built-in watchdog (brew install coreutils for the real thing)"
+fi
 
 echo
 echo "== repository =="
@@ -71,9 +83,20 @@ case "$PIPELINE_AGENT_MODE" in
       else
         hard "herdr server not reachable — start herdr and run this from inside a herdr pane"
       fi
-      "$HERDR_BIN" agent list --json >/dev/null 2>&1 \
-        && pass "\`herdr agent list --json\` works" \
-        || soft "\`herdr agent list --json\` failed — check _herdr_status in lib/agents.sh against your herdr version"
+      # The adapter needs these three: agent get (status), pane close (stop),
+      # agent start/send. `agent stop` does not exist in herdr — termination
+      # goes through the agent's pane.
+      "$HERDR_BIN" agent list >/dev/null 2>&1 \
+        && pass "\`herdr agent list\` works" \
+        || soft "\`herdr agent list\` failed — see _herdr_status in lib/agents.sh"
+      if "$HERDR_BIN" agent --help 2>&1 | grep -q '\bget\b'; then
+        pass "\`herdr agent get\` available (status + pane resolution)"
+      else
+        soft "no \`herdr agent get\` — _herdr_status falls back to scraping \`agent list\`"
+      fi
+      "$HERDR_BIN" pane --help 2>&1 | grep -q '\bclose\b' \
+        && pass "\`herdr pane close\` available (agent termination)" \
+        || soft "no \`herdr pane close\` — finished agents will leave panes open"
     else
       hard "herdr not found — install it or set PIPELINE_AGENT_MODE=headless"
     fi

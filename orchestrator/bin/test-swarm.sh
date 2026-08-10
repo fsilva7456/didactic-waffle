@@ -16,6 +16,12 @@ SANDBOX=$(mktemp -d)
 trap 'rm -rf "$SANDBOX"' EXIT
 REPO="$SANDBOX/repo"
 
+# coreutils `timeout` is absent on stock macOS; Homebrew ships it as gtimeout.
+if command -v timeout >/dev/null 2>&1;      then TIMEOUT=timeout
+elif command -v gtimeout >/dev/null 2>&1;   then TIMEOUT=gtimeout
+else TIMEOUT=""; fi
+run_bounded() { local s="$1"; shift; if [[ -n "$TIMEOUT" ]]; then "$TIMEOUT" "$s" "$@"; else "$@"; fi; }
+
 pass=0; fail=0
 ok()   { printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass+1)); }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail+1)); }
@@ -63,6 +69,51 @@ export PIPELINE_WORKTREE_ROOT="$SANDBOX/worktrees"
 export MOCK_AGENT_DELAY=1
 export MOCK_FAIL_BEADS="bd-bad"
 export PIPELINE_LOG_LEVEL=warn
+
+echo
+echo "== portability primitives =="
+
+# with_lock and run_with_timeout replace flock and coreutils timeout, neither
+# of which exists on a stock macOS. They are load-bearing for merge safety and
+# gate budgets, so they get tested directly rather than only in passing.
+(
+  # shellcheck source=/dev/null
+  source "$REPO/orchestrator/lib/config.sh"
+
+  # Mutual exclusion: two concurrent holders must not interleave.
+  marker="$SANDBOX/lock-order"; : >"$marker"
+  critical() { printf '%s-in\n' "$1" >>"$marker"; sleep 0.3; printf '%s-out\n' "$1" >>"$marker"; }
+  with_lock t critical A & p1=$!
+  sleep 0.05
+  with_lock t critical B & p2=$!
+  wait $p1 $p2
+  if grep -qE '^(A-in\nA-out\nB-in\nB-out|B-in\nB-out\nA-in\nA-out)$' <(cat "$marker") 2>/dev/null \
+     || [[ "$(tr '\n' ' ' <"$marker")" == "A-in A-out B-in B-out " \
+        || "$(tr '\n' ' ' <"$marker")" == "B-in B-out A-in A-out " ]]; then
+    echo "LOCK_OK"
+  else
+    echo "LOCK_BAD: $(tr '\n' ' ' <"$marker")"
+  fi
+
+  # A lock left by a dead process must be reclaimed, not wedge every later run.
+  mkdir -p "$PIPELINE_STATE_ABS/locks/stale.lock.d"
+  echo 999999 >"$PIPELINE_STATE_ABS/locks/stale.lock.d/pid"
+  if with_lock stale true 2>/dev/null; then echo "STALE_OK"; else echo "STALE_BAD"; fi
+
+  # Watchdog fallback: force the no-coreutils path and confirm it still kills.
+  PIPELINE_TIMEOUT_BIN=""
+  start=$(date +%s)
+  run_with_timeout 1 sleep 30 >/dev/null 2>&1 || true
+  elapsed=$(( $(date +%s) - start ))
+  if (( elapsed <= 5 )); then echo "TIMEOUT_OK"; else echo "TIMEOUT_BAD:${elapsed}s"; fi
+) >"$SANDBOX/prim.out" 2>&1 || true
+
+check "with_lock serialises concurrent holders" \
+  "$(grep -c LOCK_OK "$SANDBOX/prim.out")" "1"
+check "with_lock reclaims a lock from a dead process" \
+  "$(grep -c STALE_OK "$SANDBOX/prim.out")" "1"
+check "run_with_timeout kills without coreutils installed" \
+  "$(grep -c TIMEOUT_OK "$SANDBOX/prim.out")" "1"
 
 echo
 echo "== scheduling and concurrency =="
@@ -154,12 +205,12 @@ export PIPELINE_WORKTREE_ROOT="$CONFLICT_SB/worktrees"
 export PIPELINE_MAX_ATTEMPTS=3
 
 set +e
-timeout 180 ./orchestrator/bin/swarm.sh >"$CONFLICT_SB/run.log" 2>&1
+run_bounded 180 ./orchestrator/bin/swarm.sh >"$CONFLICT_SB/run.log" 2>&1
 crc=$?
 set -e
 
 check "swarm terminates instead of deadlocking on conflicts" \
-  "$([[ $crc -ne 124 ]] && echo yes || echo no)" "yes"
+  "$([[ $crc -ne 124 && $crc -ne 143 ]] && echo yes || echo no)" "yes"
 check "conflicts were detected and routed back to the agent" \
   "$([[ $(grep -c 'merge conflict, returning to agent' "$CONFLICT_SB/run.log") -ge 1 ]] && echo yes || echo no)" "yes"
 check "every contended bead resolved and closed" \
@@ -196,7 +247,7 @@ export PIPELINE_WORKTREE_ROOT="$HL_SB/worktrees"
 export MOCK_CONTENDED_FILE="" MOCK_FAIL_BEADS="bd-h2" PIPELINE_MAX_ATTEMPTS=2
 
 set +e
-timeout 180 ./orchestrator/bin/swarm.sh >"$HL_SB/run.log" 2>&1
+run_bounded 180 ./orchestrator/bin/swarm.sh >"$HL_SB/run.log" 2>&1
 set -e
 
 check "headless agent landed its bead" \
