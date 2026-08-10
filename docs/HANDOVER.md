@@ -1,8 +1,8 @@
 # Handover — setting this up on a Mac
 
 For a fresh Claude Code session picking this repo up locally. Read this first,
-then `README.md` for what the system is and `docs/PIPELINE.md` for how each
-phase works.
+then [`OVERVIEW.md`](OVERVIEW.md) for how the workflow works conceptually and
+[`PIPELINE.md`](PIPELINE.md) for the mechanics of each phase.
 
 **Branch:** `claude/agentic-code-orchestration-v8ieaa`
 

@@ -41,7 +41,8 @@ holding only the PRD and the design document — no codebase, no git history,
 none of the reasoning that produced the design. A reviewer that watched a
 design evolve will accept reasoning it should be attacking.
 
-**Setting this up on a Mac?** Start with [`docs/HANDOVER.md`](docs/HANDOVER.md)
+**New here?** [`docs/OVERVIEW.md`](docs/OVERVIEW.md) explains how the workflow
+works and why. **Setting this up on a Mac?** Start with [`docs/HANDOVER.md`](docs/HANDOVER.md)
 — macOS ships bash 3.2, which cannot run this.
 
 ## Requirements
